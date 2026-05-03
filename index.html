@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doc-to-PDF Converter</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+        }
+        h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
+        p { color: #64748b; margin-bottom: 2rem; }
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .upload-area:hover { border-color: var(--primary); background: #f1f5f9; }
+        input[type="file"] { display: none; }
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 1.5rem;
+            width: 100%;
+            transition: opacity 0.2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #status { margin-top: 1rem; font-size: 0.9rem; }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        #downloadLink { display: none; margin-top: 1rem; color: var(--primary); font-weight: bold; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Converter</h1>
+        <p>Upload TXT, DOCX, or HTML to convert</p>
+        
+        <label class="upload-area" for="fileInput" id="dropZone">
+            <span id="fileName">Click to select a file</span>
+            <input type="file" id="fileInput" accept=".txt,.docx,.html,.htm">
+        </label>
+
+        <button id="convertBtn" disabled>Convert to PDF</button>
+        <div id="status"></div>
+        <a id="downloadLink" href="#" target="_blank">Download your PDF</a>
+    </div>
+
+    <script>
+        const API_BASE = "https://lambda.abilashnimmala.in"; // Your Professional Domain
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const convertBtn = document.getElementById('convertBtn');
+        const status = document.getElementById('status');
+        const downloadLink = document.getElementById('downloadLink');
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                fileName.textContent = e.target.files[0].name;
+                convertBtn.disabled = false;
+            }
+        });
+
+        convertBtn.addEventListener('click', async () => {
+            const file = fileInput.files[0];
+            convertBtn.disabled = true;
+            status.textContent = "Requesting secure upload...";
+            status.className = "";
+
+            try {
+                const cType = file.type || 'application/octet-stream';
+                // 1. Get Presigned URL
+                const upRes = await fetch(`${API_BASE}/upload?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(cType)}`);
+                if (!upRes.ok) throw new Error("Failed to get upload URL");
+                const { upload_url } = await upRes.json();
+
+                // 2. Upload to S3
+                status.textContent = "Uploading file...";
+                const putRes = await fetch(upload_url, {
+                    method: 'PUT',
+                    body: file,
+                    headers: { 'Content-Type': cType }
+                });
+                if (!putRes.ok) {
+                    const errText = await putRes.text();
+                    console.error("S3 Upload Error:", errText);
+                    throw new Error("Upload failed. Please check your file name or size.");
+                }
+
+                // 3. Wait for conversion
+                status.textContent = "Processing PDF (takes ~10s)...";
+                await new Promise(r => setTimeout(r, 10000));
+
+                // 4. Get Download URL
+                const downRes = await fetch(`${API_BASE}/download?filename=${encodeURIComponent(file.name)}`);
+                const { download_url } = await downRes.json();
+
+                status.textContent = "Conversion Complete!";
+                status.className = "success";
+                downloadLink.href = download_url;
+                downloadLink.style.display = "block";
+
+            } catch (err) {
+                console.error(err);
+                status.textContent = "Error: " + err.message;
+                status.className = "error";
+                convertBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
